@@ -287,19 +287,49 @@ class LLM(RetryMixin, DebugMixin):
 
             # Record start time for latency measurement
             start_time = time.time()
+
+            # Create resource sampler for performance monitoring
+            from openhands.runtime.utils.performance_monitor import ResourceSampler
+
+            sampler = ResourceSampler(sample_interval=0.5)  # Sample every 0.5 seconds
+            sampler.start()
+
             logger.info(f'LLM request started: model={self.config.model}')
 
             # we don't support streaming here, thus we get a ModelResponse
             resp: ModelResponse = self._completion_unwrapped(*args, **kwargs)
 
-            # Calculate and record latency
-            latency = time.time() - start_time
+            # Stop resource sampler and get statistics
+            end_time = time.time()
+            resource_stats = sampler.stop()
+
+            # Calculate execution time
+            latency = end_time - start_time
             response_id = resp.get('id', 'unknown')
             self.metrics.add_response_latency(latency, response_id)
 
-            # Log detailed timing information
+            # Get statistics
+            cpu_avg = resource_stats['cpu_percent']['avg']
+            cpu_max = resource_stats['cpu_percent']['max']
+            memory_avg_mb = resource_stats['memory_mb']['avg']
+            memory_max_mb = resource_stats['memory_mb']['max']
+            memory_avg_percent = resource_stats['memory_percent']['avg']
+            memory_max_percent = resource_stats['memory_percent']['max']
+            io_read_avg_kbps = resource_stats['io_read_kbps']['avg']
+            io_read_max_kbps = resource_stats['io_read_kbps']['max']
+            io_write_avg_kbps = resource_stats['io_write_kbps']['avg']
+            io_write_max_kbps = resource_stats['io_write_kbps']['max']
+            sample_count = resource_stats['sample_count']
+
+            # Log detailed timing and performance information
             logger.info(
-                f'LLM request completed: model={self.config.model}, response_id={response_id}, execution_time={latency:.3f}s'
+                f'LLM request completed: model={self.config.model}, response_id={response_id}, '
+                f'execution_time={latency:.3f}s, samples={sample_count}, '
+                f'cpu_avg={cpu_avg:.1f}%, cpu_max={cpu_max:.1f}%, '
+                f'memory_avg={memory_avg_mb:.2f}MB ({memory_avg_percent:.1f}%), '
+                f'memory_max={memory_max_mb:.2f}MB ({memory_max_percent:.1f}%), '
+                f'io_read_avg={io_read_avg_kbps:.2f}KB/s, io_read_max={io_read_max_kbps:.2f}KB/s, '
+                f'io_write_avg={io_write_avg_kbps:.2f}KB/s, io_write_max={io_write_max_kbps:.2f}KB/s'
             )
 
             non_fncall_response = copy.deepcopy(resp)
