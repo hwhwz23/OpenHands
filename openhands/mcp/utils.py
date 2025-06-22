@@ -146,44 +146,145 @@ async def call_tool_mcp(mcp_clients: list[MCPClient], action: MCPAction) -> Obse
         The observation from the MCP server
     """
     import sys
+    import time
 
     from openhands.events.observation import ErrorObservation
+    from openhands.runtime.utils.performance_monitor import ResourceSampler
 
-    # Skip MCP tools on Windows
-    if sys.platform == 'win32':
-        logger.info('MCP functionality is disabled on Windows')
-        return ErrorObservation('MCP functionality is not available on Windows')
+    # Record start time and create resource sampler
+    start_time = time.time()
+    sampler = ResourceSampler(sample_interval=0.5)  # Sample every 0.5 seconds
+    sampler.start()
 
-    if not mcp_clients:
-        raise ValueError('No MCP clients found')
+    # Log the start of MCP tool execution
+    logger.info(f'MCP tool execution started: {action.name}')
 
-    logger.debug(f'MCP action received: {action}')
+    try:
+        # Skip MCP tools on Windows
+        if sys.platform == 'win32':
+            # Stop resource sampler and get statistics
+            end_time = time.time()
+            resource_stats = sampler.stop()
+            execution_time = end_time - start_time
 
-    # Find the MCP client that has the matching tool name
-    matching_client = None
-    logger.debug(f'MCP clients: {mcp_clients}')
-    logger.debug(f'MCP action name: {action.name}')
+            logger.info(
+                f'MCP tool execution failed (not supported on Windows), execution_time={execution_time:.3f}s'
+            )
+            return ErrorObservation('MCP functionality is not available on Windows')
 
-    for client in mcp_clients:
-        logger.debug(f'MCP client tools: {client.tools}')
-        if action.name in [tool.name for tool in client.tools]:
-            matching_client = client
-            break
+        if not mcp_clients:
+            # Stop resource sampler and get statistics
+            end_time = time.time()
+            resource_stats = sampler.stop()
+            execution_time = end_time - start_time
 
-    if matching_client is None:
-        raise ValueError(f'No matching MCP agent found for tool name: {action.name}')
+            logger.info(
+                f'MCP tool execution failed (no clients found), execution_time={execution_time:.3f}s'
+            )
+            raise ValueError('No MCP clients found')
 
-    logger.debug(f'Matching client: {matching_client}')
+        logger.debug(f'MCP action received: {action}')
 
-    # Call the tool - this will create a new connection internally
-    response = await matching_client.call_tool(action.name, action.arguments)
-    logger.debug(f'MCP response: {response}')
+        # Find the MCP client that has the matching tool name
+        matching_client = None
+        logger.debug(f'MCP clients: {mcp_clients}')
+        logger.debug(f'MCP action name: {action.name}')
 
-    return MCPObservation(
-        content=json.dumps(response.model_dump(mode='json')),
-        name=action.name,
-        arguments=action.arguments,
-    )
+        for client in mcp_clients:
+            logger.debug(f'MCP client tools: {client.tools}')
+            if action.name in [tool.name for tool in client.tools]:
+                matching_client = client
+                break
+
+        if matching_client is None:
+            # Stop resource sampler and get statistics
+            end_time = time.time()
+            resource_stats = sampler.stop()
+            execution_time = end_time - start_time
+
+            logger.info(
+                f'MCP tool execution failed (no matching client for {action.name}), execution_time={execution_time:.3f}s'
+            )
+            raise ValueError(
+                f'No matching MCP agent found for tool name: {action.name}'
+            )
+
+        logger.debug(f'Matching client: {matching_client}')
+
+        # Call the tool - this will create a new connection internally
+        response = await matching_client.call_tool(action.name, action.arguments)
+        logger.debug(f'MCP response: {response}')
+
+        # Stop resource sampler and get statistics
+        end_time = time.time()
+        resource_stats = sampler.stop()
+
+        # Calculate execution time
+        execution_time = end_time - start_time
+
+        # Get statistics
+        cpu_avg = resource_stats['cpu_percent']['avg']
+        cpu_max = resource_stats['cpu_percent']['max']
+        memory_avg_mb = resource_stats['memory_mb']['avg']
+        memory_max_mb = resource_stats['memory_mb']['max']
+        memory_avg_percent = resource_stats['memory_percent']['avg']
+        memory_max_percent = resource_stats['memory_percent']['max']
+        io_read_avg_kbps = resource_stats['io_read_kbps']['avg']
+        io_read_max_kbps = resource_stats['io_read_kbps']['max']
+        io_write_avg_kbps = resource_stats['io_write_kbps']['avg']
+        io_write_max_kbps = resource_stats['io_write_kbps']['max']
+        sample_count = resource_stats['sample_count']
+
+        # Log performance metrics
+        logger.info(
+            f'MCP tool execution completed: {action.name}, '
+            f'execution_time={execution_time:.3f}s, '
+            f'samples={sample_count}, '
+            f'cpu_avg={cpu_avg:.1f}%, cpu_max={cpu_max:.1f}%, '
+            f'memory_avg={memory_avg_mb:.2f}MB ({memory_avg_percent:.1f}%), '
+            f'memory_max={memory_max_mb:.2f}MB ({memory_max_percent:.1f}%), '
+            f'io_read_avg={io_read_avg_kbps:.2f}KB/s, io_read_max={io_read_max_kbps:.2f}KB/s, '
+            f'io_write_avg={io_write_avg_kbps:.2f}KB/s, io_write_max={io_write_max_kbps:.2f}KB/s'
+        )
+
+        return MCPObservation(
+            content=json.dumps(response.model_dump(mode='json')),
+            name=action.name,
+            arguments=action.arguments,
+        )
+    except Exception as e:
+        # Stop resource sampler and get statistics in case of error
+        end_time = time.time()
+        resource_stats = sampler.stop()
+        execution_time = end_time - start_time
+
+        # Get statistics
+        cpu_avg = resource_stats['cpu_percent']['avg']
+        cpu_max = resource_stats['cpu_percent']['max']
+        memory_avg_mb = resource_stats['memory_mb']['avg']
+        memory_max_mb = resource_stats['memory_mb']['max']
+        memory_avg_percent = resource_stats['memory_percent']['avg']
+        memory_max_percent = resource_stats['memory_percent']['max']
+        io_read_avg_kbps = resource_stats['io_read_kbps']['avg']
+        io_read_max_kbps = resource_stats['io_read_kbps']['max']
+        io_write_avg_kbps = resource_stats['io_write_kbps']['avg']
+        io_write_max_kbps = resource_stats['io_write_kbps']['max']
+        sample_count = resource_stats['sample_count']
+
+        # Log performance metrics for the failed execution
+        logger.info(
+            f'MCP tool execution failed: {action.name}, error: {str(e)}, '
+            f'execution_time={execution_time:.3f}s, '
+            f'samples={sample_count}, '
+            f'cpu_avg={cpu_avg:.1f}%, cpu_max={cpu_max:.1f}%, '
+            f'memory_avg={memory_avg_mb:.2f}MB ({memory_avg_percent:.1f}%), '
+            f'memory_max={memory_max_mb:.2f}MB ({memory_max_percent:.1f}%), '
+            f'io_read_avg={io_read_avg_kbps:.2f}KB/s, io_read_max={io_read_max_kbps:.2f}KB/s, '
+            f'io_write_avg={io_write_avg_kbps:.2f}KB/s, io_write_max={io_write_max_kbps:.2f}KB/s'
+        )
+
+        # Re-raise the exception
+        raise
 
 
 async def add_mcp_tools_to_agent(agent: 'Agent', runtime: Runtime, memory: 'Memory'):
