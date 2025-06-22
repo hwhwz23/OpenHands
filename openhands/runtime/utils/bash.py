@@ -9,8 +9,6 @@ from typing import Any
 import bashlex
 import libtmux
 
-from openhands.runtime.utils.system_stats import get_system_stats
-
 from openhands.core.logger import openhands_logger as logger
 from openhands.events.action import CmdRunAction
 from openhands.events.observation import ErrorObservation
@@ -20,6 +18,7 @@ from openhands.events.observation.commands import (
     CmdOutputObservation,
 )
 from openhands.runtime.utils.bash_constants import TIMEOUT_MESSAGE_TEMPLATE
+from openhands.runtime.utils.performance_monitor import ResourceSampler
 from openhands.utils.shutdown_listener import should_continue
 
 
@@ -315,7 +314,12 @@ class BashSession:
         return command_output.rstrip()
 
     def _handle_completed_command(
-        self, command: str, pane_content: str, ps1_matches: list[re.Match]
+        self,
+        command: str,
+        pane_content: str,
+        ps1_matches: list[re.Match],
+        sampler: ResourceSampler | None = None,
+        start_time: float | None = None,
     ) -> CmdOutputObservation:
         is_special_key = self._is_special_key(command)
         assert len(ps1_matches) >= 1, (
@@ -359,22 +363,42 @@ class BashSession:
         self.prev_output = ''  # Reset previous command output
         self._ready_for_next_command()
 
-        # Get final system stats and calculate execution time
-        time.time()
-        end_stats = get_system_stats()
+        # Stop resource sampler and get statistics if provided
+        end_time = time.time()
+        execution_time = 0.0
+        resource_stats = None
 
-        # Calculate resource usage
-        cpu_percent = end_stats['cpu_percent']
-        memory_usage_mb = end_stats['memory']['rss'] / (1024 * 1024)  # Convert to MB
-        memory_percent = end_stats['memory']['percent']
+        if sampler and start_time:
+            resource_stats = sampler.stop()
+            # Calculate execution time
+            execution_time = end_time - start_time
 
         # Log performance metrics
-        logger.info(
-            f'Bash command execution completed: {command[:50]}{"..." if len(command) > 50 else ""}, '
-            f'exit_code={metadata.exit_code}, '
-            f'cpu_percent={cpu_percent:.1f}%, '
-            f'memory_usage={memory_usage_mb:.2f}MB ({memory_percent:.1f}%)'
-        )
+        if resource_stats:
+            # Get statistics
+            cpu_avg = resource_stats['cpu_percent']['avg']
+            cpu_max = resource_stats['cpu_percent']['max']
+            memory_avg_mb = resource_stats['memory_mb']['avg']
+            memory_max_mb = resource_stats['memory_mb']['max']
+            memory_avg_percent = resource_stats['memory_percent']['avg']
+            memory_max_percent = resource_stats['memory_percent']['max']
+            sample_count = resource_stats['sample_count']
+
+            logger.info(
+                f'Bash command execution completed: {command[:50]}{"..." if len(command) > 50 else ""}, '
+                f'exit_code={metadata.exit_code}, '
+                f'execution_time={execution_time:.3f}s, '
+                f'samples={sample_count}, '
+                f'cpu_avg={cpu_avg:.1f}%, cpu_max={cpu_max:.1f}%, '
+                f'memory_avg={memory_avg_mb:.2f}MB ({memory_avg_percent:.1f}%), '
+                f'memory_max={memory_max_mb:.2f}MB ({memory_max_percent:.1f}%)'
+            )
+        else:
+            # Simple log without performance metrics
+            logger.info(
+                f'Bash command execution completed: {command[:50]}{"..." if len(command) > 50 else ""}, '
+                f'exit_code={metadata.exit_code}'
+            )
 
         return CmdOutputObservation(
             content=command_output,
@@ -495,11 +519,10 @@ class BashSession:
         if not self._initialized:
             raise RuntimeError('Bash session is not initialized')
 
-        # Record start time and system stats
+        # Record start time and create resource sampler
         start_time = time.time()
-        from openhands.runtime.utils.system_stats import get_system_stats
-
-        get_system_stats()
+        sampler = ResourceSampler(sample_interval=0.5)  # Sample every 0.5 seconds
+        sampler.start()
 
         # Strip the command of any leading/trailing whitespace
         logger.debug(f'RECEIVED ACTION: {action}')
@@ -647,6 +670,8 @@ class BashSession:
                     command,
                     pane_content=cur_pane_output,
                     ps1_matches=ps1_matches,
+                    sampler=sampler,
+                    start_time=start_time,
                 )
 
             # Timeout checks should only trigger if a new prompt hasn't appeared yet.
@@ -687,20 +712,35 @@ class BashSession:
 
         # If we get here, something went wrong
         end_time = time.time()
-        end_stats = get_system_stats()
         execution_time = end_time - start_time
 
-        # Calculate resource usage
-        cpu_percent = end_stats['cpu_percent']
-        memory_usage_mb = end_stats['memory']['rss'] / (1024 * 1024)  # Convert to MB
-        memory_percent = end_stats['memory']['percent']
+        # Stop resource sampler if it exists
+        if sampler:
+            resource_stats = sampler.stop()
 
-        # Log performance metrics for the failed command
-        logger.info(
-            f'Bash command execution failed: {command[:50]}{"..." if len(command) > 50 else ""}, '
-            f'execution_time={execution_time:.3f}s, '
-            f'cpu_percent={cpu_percent:.1f}%, '
-            f'memory_usage={memory_usage_mb:.2f}MB ({memory_percent:.1f}%)'
-        )
+            # Get statistics
+            cpu_avg = resource_stats['cpu_percent']['avg']
+            cpu_max = resource_stats['cpu_percent']['max']
+            memory_avg_mb = resource_stats['memory_mb']['avg']
+            memory_max_mb = resource_stats['memory_mb']['max']
+            memory_avg_percent = resource_stats['memory_percent']['avg']
+            memory_max_percent = resource_stats['memory_percent']['max']
+            sample_count = resource_stats['sample_count']
+
+            # Log performance metrics for the failed command
+            logger.info(
+                f'Bash command execution failed: {command[:50]}{"..." if len(command) > 50 else ""}, '
+                f'execution_time={execution_time:.3f}s, '
+                f'samples={sample_count}, '
+                f'cpu_avg={cpu_avg:.1f}%, cpu_max={cpu_max:.1f}%, '
+                f'memory_avg={memory_avg_mb:.2f}MB ({memory_avg_percent:.1f}%), '
+                f'memory_max={memory_max_mb:.2f}MB ({memory_max_percent:.1f}%)'
+            )
+        else:
+            # Simple log without performance metrics
+            logger.info(
+                f'Bash command execution failed: {command[:50]}{"..." if len(command) > 50 else ""}, '
+                f'execution_time={execution_time:.3f}s'
+            )
 
         raise RuntimeError('Bash session was likely interrupted...')

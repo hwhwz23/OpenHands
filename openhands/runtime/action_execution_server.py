@@ -69,6 +69,7 @@ from openhands.runtime.utils import find_available_tcp_port
 from openhands.runtime.utils.bash import BashSession
 from openhands.runtime.utils.files import insert_lines, read_lines
 from openhands.runtime.utils.memory_monitor import MemoryMonitor
+from openhands.runtime.utils.performance_monitor import ResourceSampler
 from openhands.runtime.utils.runtime_init import init_user_and_working_directory
 from openhands.runtime.utils.system_stats import get_system_stats
 from openhands.utils.async_utils import call_sync_from_async, wait_all
@@ -382,35 +383,39 @@ class ActionExecutor:
             action_type = action.action
             start_time = time.time()
 
-            # Get initial system stats
-            from openhands.runtime.utils.system_stats import get_system_stats
-
-            get_system_stats()
+            # Create resource sampler
+            sampler = ResourceSampler(sample_interval=0.5)  # Sample every 0.5 seconds
+            sampler.start()
 
             logger.info(f'Action execution started: {action_type}')
 
             # Execute the action
             observation = await getattr(self, action_type)(action)
 
-            # Get final system stats and calculate execution time
+            # Stop resource sampler and get statistics
             end_time = time.time()
-            end_stats = get_system_stats()
+            resource_stats = sampler.stop()
+
+            # Calculate execution time
             execution_time = end_time - start_time
 
-            # Calculate resource usage
-            cpu_percent = end_stats.get('cpu_percent', 0.0)
-            memory_info = end_stats.get('memory', {})
-            memory_usage_mb = memory_info.get('rss', 0) / (
-                1024 * 1024
-            )  # Convert to MB
-            memory_percent = memory_info.get('percent', 0.0)
+            # Get statistics
+            cpu_avg = resource_stats['cpu_percent']['avg']
+            cpu_max = resource_stats['cpu_percent']['max']
+            memory_avg_mb = resource_stats['memory_mb']['avg']
+            memory_max_mb = resource_stats['memory_mb']['max']
+            memory_avg_percent = resource_stats['memory_percent']['avg']
+            memory_max_percent = resource_stats['memory_percent']['max']
+            sample_count = resource_stats['sample_count']
 
             # Log performance metrics
             logger.info(
                 f'Action execution completed: {action_type}, '
                 f'execution_time={execution_time:.3f}s, '
-                f'cpu_percent={cpu_percent:.1f}%, '
-                f'memory_usage={memory_usage_mb:.2f}MB ({memory_percent:.1f}%)'
+                f'samples={sample_count}, '
+                f'cpu_avg={cpu_avg:.1f}%, cpu_max={cpu_max:.1f}%, '
+                f'memory_avg={memory_avg_mb:.2f}MB ({memory_avg_percent:.1f}%), '
+                f'memory_max={memory_max_mb:.2f}MB ({memory_max_percent:.1f}%)'
             )
 
             return observation
@@ -432,11 +437,10 @@ class ActionExecutor:
     async def run_ipython(self, action: IPythonRunCellAction) -> Observation:
         assert self.bash_session is not None
 
-        # Record start time and system stats
+        # Record start time and create resource sampler
         start_time = time.time()
-        from openhands.runtime.utils.system_stats import get_system_stats
-
-        get_system_stats()
+        sampler = ResourceSampler(sample_interval=0.5)  # Sample every 0.5 seconds
+        sampler.start()
 
         # Log the start of IPython execution
         code_preview = action.code.split('\n')[0][:50] + (
@@ -474,48 +478,58 @@ class ActionExecutor:
                 )
                 obs.content += f'\n[Jupyter Python interpreter: {_jupyter_plugin.python_interpreter_path}]'
 
-            # Get final system stats and calculate execution time
+            # Stop resource sampler and get statistics
             end_time = time.time()
-            end_stats = get_system_stats()
+            resource_stats = sampler.stop()
+
+            # Calculate execution time
             execution_time = end_time - start_time
 
-            # Calculate resource usage
-            cpu_percent = end_stats.get('cpu_percent', 0.0)
-            memory_info = end_stats.get('memory', {})
-            memory_usage_mb = memory_info.get('rss', 0) / (
-                1024 * 1024
-            )  # Convert to MB
-            memory_percent = memory_info.get('percent', 0.0)
+            # Get statistics
+            cpu_avg = resource_stats['cpu_percent']['avg']
+            cpu_max = resource_stats['cpu_percent']['max']
+            memory_avg_mb = resource_stats['memory_mb']['avg']
+            memory_max_mb = resource_stats['memory_mb']['max']
+            memory_avg_percent = resource_stats['memory_percent']['avg']
+            memory_max_percent = resource_stats['memory_percent']['max']
+            sample_count = resource_stats['sample_count']
 
             # Log performance metrics
             logger.info(
                 f'IPython execution completed: {code_preview}, '
                 f'execution_time={execution_time:.3f}s, '
-                f'cpu_percent={cpu_percent:.1f}%, '
-                f'memory_usage={memory_usage_mb:.2f}MB ({memory_percent:.1f}%)'
+                f'samples={sample_count}, '
+                f'cpu_avg={cpu_avg:.1f}%, cpu_max={cpu_max:.1f}%, '
+                f'memory_avg={memory_avg_mb:.2f}MB ({memory_avg_percent:.1f}%), '
+                f'memory_max={memory_max_mb:.2f}MB ({memory_max_percent:.1f}%)'
             )
 
             return obs
         else:
-            # Log error with performance metrics
+            # Stop resource sampler and get statistics
             end_time = time.time()
-            end_stats = get_system_stats()
+            resource_stats = sampler.stop()
+
+            # Calculate execution time
             execution_time = end_time - start_time
 
-            # Calculate resource usage
-            cpu_percent = end_stats.get('cpu_percent', 0.0)
-            memory_info = end_stats.get('memory', {})
-            memory_usage_mb = memory_info.get('rss', 0) / (
-                1024 * 1024
-            )  # Convert to MB
-            memory_percent = memory_info.get('percent', 0.0)
+            # Get statistics
+            cpu_avg = resource_stats['cpu_percent']['avg']
+            cpu_max = resource_stats['cpu_percent']['max']
+            memory_avg_mb = resource_stats['memory_mb']['avg']
+            memory_max_mb = resource_stats['memory_mb']['max']
+            memory_avg_percent = resource_stats['memory_percent']['avg']
+            memory_max_percent = resource_stats['memory_percent']['max']
+            sample_count = resource_stats['sample_count']
 
             # Log performance metrics for the failed execution
             logger.info(
                 f'IPython execution failed: {code_preview}, '
                 f'execution_time={execution_time:.3f}s, '
-                f'cpu_percent={cpu_percent:.1f}%, '
-                f'memory_usage={memory_usage_mb:.2f}MB ({memory_percent:.1f}%)'
+                f'samples={sample_count}, '
+                f'cpu_avg={cpu_avg:.1f}%, cpu_max={cpu_max:.1f}%, '
+                f'memory_avg={memory_avg_mb:.2f}MB ({memory_avg_percent:.1f}%), '
+                f'memory_max={memory_max_mb:.2f}MB ({memory_max_percent:.1f}%)'
             )
 
             raise RuntimeError(
