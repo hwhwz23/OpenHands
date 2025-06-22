@@ -23,6 +23,10 @@ class ResourceSampler:
         self.running = False
         self.thread: Optional[threading.Thread] = None
         self.lock = threading.Lock()
+        # Store previous IO values to calculate rates
+        self.prev_io_read_bytes = 0
+        self.prev_io_write_bytes = 0
+        self.prev_sample_time = 0.0
 
     def start(self):
         """Start sampling system resources."""
@@ -31,6 +35,17 @@ class ResourceSampler:
 
         self.running = True
         self.samples = []
+        # Initialize IO counters
+        self.prev_io_read_bytes = 0
+        self.prev_io_write_bytes = 0
+        self.prev_sample_time = time.time()
+
+        # Get initial system stats to initialize IO counters
+        initial_stats = get_system_stats()
+        if 'io' in initial_stats:
+            self.prev_io_read_bytes = initial_stats['io'].get('read_bytes', 0)
+            self.prev_io_write_bytes = initial_stats['io'].get('write_bytes', 0)
+
         self.thread = threading.Thread(target=self._sample_loop, daemon=True)
         self.thread.start()
 
@@ -45,6 +60,8 @@ class ResourceSampler:
                 'cpu_percent': {'avg': 0.0, 'max': 0.0, 'samples': []},
                 'memory_mb': {'avg': 0.0, 'max': 0.0, 'samples': []},
                 'memory_percent': {'avg': 0.0, 'max': 0.0, 'samples': []},
+                'io_read_kbps': {'avg': 0.0, 'max': 0.0, 'samples': []},
+                'io_write_kbps': {'avg': 0.0, 'max': 0.0, 'samples': []},
                 'sample_count': 0,
             }
 
@@ -58,10 +75,12 @@ class ResourceSampler:
                     'cpu_percent': {'avg': 0.0, 'max': 0.0, 'samples': []},
                     'memory_mb': {'avg': 0.0, 'max': 0.0, 'samples': []},
                     'memory_percent': {'avg': 0.0, 'max': 0.0, 'samples': []},
+                    'io_read_kbps': {'avg': 0.0, 'max': 0.0, 'samples': []},
+                    'io_write_kbps': {'avg': 0.0, 'max': 0.0, 'samples': []},
                     'sample_count': 0,
                 }
 
-            # Extract CPU and memory values from samples
+            # Extract CPU, memory, and IO values from samples
             cpu_values = [sample.get('cpu_percent', 0.0) for sample in self.samples]
             memory_mb_values = [
                 sample.get('memory', {}).get('rss', 0) / (1024 * 1024)
@@ -69,6 +88,12 @@ class ResourceSampler:
             ]
             memory_percent_values = [
                 sample.get('memory', {}).get('percent', 0.0) for sample in self.samples
+            ]
+            io_read_kbps_values = [
+                sample.get('io_read_kbps', 0.0) for sample in self.samples
+            ]
+            io_write_kbps_values = [
+                sample.get('io_write_kbps', 0.0) for sample in self.samples
             ]
 
             # Calculate statistics
@@ -92,6 +117,20 @@ class ResourceSampler:
                     'max': max(memory_percent_values) if memory_percent_values else 0.0,
                     'samples': memory_percent_values,
                 },
+                'io_read_kbps': {
+                    'avg': statistics.mean(io_read_kbps_values)
+                    if io_read_kbps_values
+                    else 0.0,
+                    'max': max(io_read_kbps_values) if io_read_kbps_values else 0.0,
+                    'samples': io_read_kbps_values,
+                },
+                'io_write_kbps': {
+                    'avg': statistics.mean(io_write_kbps_values)
+                    if io_write_kbps_values
+                    else 0.0,
+                    'max': max(io_write_kbps_values) if io_write_kbps_values else 0.0,
+                    'samples': io_write_kbps_values,
+                },
                 'sample_count': len(self.samples),
             }
 
@@ -101,8 +140,43 @@ class ResourceSampler:
         """Background thread that samples system resources."""
         while self.running:
             try:
+                # Get current time for IO rate calculation
+                current_time = time.time()
+                time_delta = current_time - self.prev_sample_time
+
                 # Get system stats
                 stats = get_system_stats()
+
+                # Calculate IO rates (KB/s)
+                if 'io' in stats:
+                    current_read_bytes = stats['io'].get('read_bytes', 0)
+                    current_write_bytes = stats['io'].get('write_bytes', 0)
+
+                    # Calculate read rate in KB/s
+                    if self.prev_io_read_bytes > 0 and time_delta > 0:
+                        read_bytes_delta = current_read_bytes - self.prev_io_read_bytes
+                        read_rate_kbps = (read_bytes_delta / 1024) / time_delta
+                        stats['io_read_kbps'] = read_rate_kbps
+                    else:
+                        stats['io_read_kbps'] = 0.0
+
+                    # Calculate write rate in KB/s
+                    if self.prev_io_write_bytes > 0 and time_delta > 0:
+                        write_bytes_delta = (
+                            current_write_bytes - self.prev_io_write_bytes
+                        )
+                        write_rate_kbps = (write_bytes_delta / 1024) / time_delta
+                        stats['io_write_kbps'] = write_rate_kbps
+                    else:
+                        stats['io_write_kbps'] = 0.0
+
+                    # Update previous values for next iteration
+                    self.prev_io_read_bytes = current_read_bytes
+                    self.prev_io_write_bytes = current_write_bytes
+                    self.prev_sample_time = current_time
+                else:
+                    stats['io_read_kbps'] = 0.0
+                    stats['io_write_kbps'] = 0.0
 
                 # Add to samples list
                 with self.lock:
@@ -161,6 +235,10 @@ class PerformanceMonitor:
                 memory_max_mb = resource_stats['memory_mb']['max']
                 memory_avg_percent = resource_stats['memory_percent']['avg']
                 memory_max_percent = resource_stats['memory_percent']['max']
+                io_read_avg_kbps = resource_stats['io_read_kbps']['avg']
+                io_read_max_kbps = resource_stats['io_read_kbps']['max']
+                io_write_avg_kbps = resource_stats['io_write_kbps']['avg']
+                io_write_max_kbps = resource_stats['io_write_kbps']['max']
                 sample_count = resource_stats['sample_count']
 
                 # Log performance metrics
@@ -170,7 +248,9 @@ class PerformanceMonitor:
                     f'samples={sample_count}, '
                     f'cpu_avg={cpu_avg:.1f}%, cpu_max={cpu_max:.1f}%, '
                     f'memory_avg={memory_avg_mb:.2f}MB ({memory_avg_percent:.1f}%), '
-                    f'memory_max={memory_max_mb:.2f}MB ({memory_max_percent:.1f}%)'
+                    f'memory_max={memory_max_mb:.2f}MB ({memory_max_percent:.1f}%), '
+                    f'io_read_avg={io_read_avg_kbps:.2f}KB/s, io_read_max={io_read_max_kbps:.2f}KB/s, '
+                    f'io_write_avg={io_write_avg_kbps:.2f}KB/s, io_write_max={io_write_max_kbps:.2f}KB/s'
                 )
 
         def sync_wrapper(*args, **kwargs):
@@ -205,6 +285,10 @@ class PerformanceMonitor:
                 memory_max_mb = resource_stats['memory_mb']['max']
                 memory_avg_percent = resource_stats['memory_percent']['avg']
                 memory_max_percent = resource_stats['memory_percent']['max']
+                io_read_avg_kbps = resource_stats['io_read_kbps']['avg']
+                io_read_max_kbps = resource_stats['io_read_kbps']['max']
+                io_write_avg_kbps = resource_stats['io_write_kbps']['avg']
+                io_write_max_kbps = resource_stats['io_write_kbps']['max']
                 sample_count = resource_stats['sample_count']
 
                 # Log performance metrics
@@ -214,7 +298,9 @@ class PerformanceMonitor:
                     f'samples={sample_count}, '
                     f'cpu_avg={cpu_avg:.1f}%, cpu_max={cpu_max:.1f}%, '
                     f'memory_avg={memory_avg_mb:.2f}MB ({memory_avg_percent:.1f}%), '
-                    f'memory_max={memory_max_mb:.2f}MB ({memory_max_percent:.1f}%)'
+                    f'memory_max={memory_max_mb:.2f}MB ({memory_max_percent:.1f}%), '
+                    f'io_read_avg={io_read_avg_kbps:.2f}KB/s, io_read_max={io_read_max_kbps:.2f}KB/s, '
+                    f'io_write_avg={io_write_avg_kbps:.2f}KB/s, io_write_max={io_write_max_kbps:.2f}KB/s'
                 )
 
         # Return the appropriate wrapper based on whether the function is async or not
