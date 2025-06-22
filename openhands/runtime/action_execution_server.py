@@ -565,11 +565,27 @@ class ActionExecutor:
             return str(Path(working_dir) / filepath)
         return str(filepath)
 
+    @PerformanceMonitor.monitor_execution
     async def read(self, action: FileReadAction) -> Observation:
         assert self.bash_session is not None
 
+        # Record start time and create resource sampler
+        start_time = time.time()
+        sampler = ResourceSampler(sample_interval=0.5)  # Sample every 0.5 seconds
+        sampler.start()
+
+        logger.info(f'File read operation started: {action.path}')
+
         # Cannot read binary files
         if is_binary(action.path):
+            # Stop resource sampler and get statistics
+            end_time = time.time()
+            resource_stats = sampler.stop()
+            execution_time = end_time - start_time
+
+            logger.info(
+                f'File read operation failed (binary file): {action.path}, execution_time={execution_time:.3f}s'
+            )
             return ErrorObservation('ERROR_BINARY_FILE')
 
         if action.impl_source == FileReadSource.OH_ACI:
@@ -578,6 +594,38 @@ class ActionExecutor:
                 command='view',
                 path=action.path,
                 view_range=action.view_range,
+            )
+
+            # Stop resource sampler and get statistics
+            end_time = time.time()
+            resource_stats = sampler.stop()
+
+            # Calculate execution time
+            execution_time = end_time - start_time
+
+            # Get statistics
+            cpu_avg = resource_stats['cpu_percent']['avg']
+            cpu_max = resource_stats['cpu_percent']['max']
+            memory_avg_mb = resource_stats['memory_mb']['avg']
+            memory_max_mb = resource_stats['memory_mb']['max']
+            memory_avg_percent = resource_stats['memory_percent']['avg']
+            memory_max_percent = resource_stats['memory_percent']['max']
+            io_read_avg_kbps = resource_stats['io_read_kbps']['avg']
+            io_read_max_kbps = resource_stats['io_read_kbps']['max']
+            io_write_avg_kbps = resource_stats['io_write_kbps']['avg']
+            io_write_max_kbps = resource_stats['io_write_kbps']['max']
+            sample_count = resource_stats['sample_count']
+
+            # Log performance metrics
+            logger.info(
+                f'File read operation completed: {action.path}, '
+                f'execution_time={execution_time:.3f}s, '
+                f'samples={sample_count}, '
+                f'cpu_avg={cpu_avg:.1f}%, cpu_max={cpu_max:.1f}%, '
+                f'memory_avg={memory_avg_mb:.2f}MB ({memory_avg_percent:.1f}%), '
+                f'memory_max={memory_max_mb:.2f}MB ({memory_max_percent:.1f}%), '
+                f'io_read_avg={io_read_avg_kbps:.2f}KB/s, io_read_max={io_read_max_kbps:.2f}KB/s, '
+                f'io_write_avg={io_write_avg_kbps:.2f}KB/s, io_write_max={io_write_max_kbps:.2f}KB/s'
             )
 
             return FileReadObservation(
@@ -600,13 +648,32 @@ class ActionExecutor:
                         mime_type = 'image/png'  # default to PNG if mime type cannot be determined
                     encoded_image = f'data:{mime_type};base64,{encoded_image}'
 
+                # Stop resource sampler and get statistics
+                end_time = time.time()
+                resource_stats = sampler.stop()
+                execution_time = end_time - start_time
+
+                logger.info(
+                    f'File read operation completed (image file): {filepath}, execution_time={execution_time:.3f}s'
+                )
                 return FileReadObservation(path=filepath, content=encoded_image)
+
             elif filepath.lower().endswith('.pdf'):
                 with open(filepath, 'rb') as file:
                     pdf_data = file.read()
                     encoded_pdf = base64.b64encode(pdf_data).decode('utf-8')
                     encoded_pdf = f'data:application/pdf;base64,{encoded_pdf}'
+
+                # Stop resource sampler and get statistics
+                end_time = time.time()
+                resource_stats = sampler.stop()
+                execution_time = end_time - start_time
+
+                logger.info(
+                    f'File read operation completed (PDF file): {filepath}, execution_time={execution_time:.3f}s'
+                )
                 return FileReadObservation(path=filepath, content=encoded_pdf)
+
             elif filepath.lower().endswith(('.mp4', '.webm', '.ogg')):
                 with open(filepath, 'rb') as file:
                     video_data = file.read()
@@ -616,26 +683,110 @@ class ActionExecutor:
                         mime_type = 'video/mp4'  # default to MP4 if MIME type cannot be determined
                     encoded_video = f'data:{mime_type};base64,{encoded_video}'
 
+                # Stop resource sampler and get statistics
+                end_time = time.time()
+                resource_stats = sampler.stop()
+                execution_time = end_time - start_time
+
+                logger.info(
+                    f'File read operation completed (video file): {filepath}, execution_time={execution_time:.3f}s'
+                )
                 return FileReadObservation(path=filepath, content=encoded_video)
 
             with open(filepath, 'r', encoding='utf-8') as file:
                 lines = read_lines(file.readlines(), action.start, action.end)
+
+            # Stop resource sampler and get statistics
+            end_time = time.time()
+            resource_stats = sampler.stop()
+
+            # Calculate execution time
+            execution_time = end_time - start_time
+
+            # Get statistics
+            cpu_avg = resource_stats['cpu_percent']['avg']
+            cpu_max = resource_stats['cpu_percent']['max']
+            memory_avg_mb = resource_stats['memory_mb']['avg']
+            memory_max_mb = resource_stats['memory_mb']['max']
+            memory_avg_percent = resource_stats['memory_percent']['avg']
+            memory_max_percent = resource_stats['memory_percent']['max']
+            io_read_avg_kbps = resource_stats['io_read_kbps']['avg']
+            io_read_max_kbps = resource_stats['io_read_kbps']['max']
+            io_write_avg_kbps = resource_stats['io_write_kbps']['avg']
+            io_write_max_kbps = resource_stats['io_write_kbps']['max']
+            sample_count = resource_stats['sample_count']
+
+            # Log performance metrics
+            logger.info(
+                f'File read operation completed (text file): {filepath}, '
+                f'execution_time={execution_time:.3f}s, '
+                f'samples={sample_count}, '
+                f'cpu_avg={cpu_avg:.1f}%, cpu_max={cpu_max:.1f}%, '
+                f'memory_avg={memory_avg_mb:.2f}MB ({memory_avg_percent:.1f}%), '
+                f'memory_max={memory_max_mb:.2f}MB ({memory_max_percent:.1f}%), '
+                f'io_read_avg={io_read_avg_kbps:.2f}KB/s, io_read_max={io_read_max_kbps:.2f}KB/s, '
+                f'io_write_avg={io_write_avg_kbps:.2f}KB/s, io_write_max={io_write_max_kbps:.2f}KB/s'
+            )
+
         except FileNotFoundError:
+            # Stop resource sampler and get statistics
+            end_time = time.time()
+            resource_stats = sampler.stop()
+            execution_time = end_time - start_time
+
+            logger.info(
+                f'File read operation failed (not found): {filepath}, execution_time={execution_time:.3f}s'
+            )
             return ErrorObservation(
                 f'File not found: {filepath}. Your current working directory is {working_dir}.'
             )
         except UnicodeDecodeError:
+            # Stop resource sampler and get statistics
+            end_time = time.time()
+            resource_stats = sampler.stop()
+            execution_time = end_time - start_time
+
+            logger.info(
+                f'File read operation failed (decode error): {filepath}, execution_time={execution_time:.3f}s'
+            )
             return ErrorObservation(f'File could not be decoded as utf-8: {filepath}.')
         except IsADirectoryError:
+            # Stop resource sampler and get statistics
+            end_time = time.time()
+            resource_stats = sampler.stop()
+            execution_time = end_time - start_time
+
+            logger.info(
+                f'File read operation failed (is directory): {filepath}, execution_time={execution_time:.3f}s'
+            )
             return ErrorObservation(
                 f'Path is a directory: {filepath}. You can only read files'
             )
+        except Exception as e:
+            # Stop resource sampler and get statistics
+            end_time = time.time()
+            resource_stats = sampler.stop()
+            execution_time = end_time - start_time
+
+            logger.error(
+                f'Error reading file: {filepath}, error: {str(e)}, execution_time={execution_time:.3f}s'
+            )
+            return ErrorObservation(str(e))
 
         code_view = ''.join(lines)
         return FileReadObservation(path=filepath, content=code_view)
 
+    @PerformanceMonitor.monitor_execution
     async def write(self, action: FileWriteAction) -> Observation:
         assert self.bash_session is not None
+
+        # Record start time and create resource sampler
+        start_time = time.time()
+        sampler = ResourceSampler(sample_interval=0.5)  # Sample every 0.5 seconds
+        sampler.start()
+
+        logger.info(f'File write operation started: {action.path}')
+
         working_dir = self.bash_session.cwd
         filepath = self._resolve_path(action.path, working_dir)
 
@@ -663,12 +814,36 @@ class ActionExecutor:
                 file.truncate()
 
         except FileNotFoundError:
+            # Stop resource sampler and get statistics
+            end_time = time.time()
+            resource_stats = sampler.stop()
+            execution_time = end_time - start_time
+
+            logger.info(
+                f'File write operation failed (not found): {filepath}, execution_time={execution_time:.3f}s'
+            )
             return ErrorObservation(f'File not found: {filepath}')
         except IsADirectoryError:
+            # Stop resource sampler and get statistics
+            end_time = time.time()
+            resource_stats = sampler.stop()
+            execution_time = end_time - start_time
+
+            logger.info(
+                f'File write operation failed (is directory): {filepath}, execution_time={execution_time:.3f}s'
+            )
             return ErrorObservation(
                 f'Path is a directory: {filepath}. You can only write to files'
             )
         except UnicodeDecodeError:
+            # Stop resource sampler and get statistics
+            end_time = time.time()
+            resource_stats = sampler.stop()
+            execution_time = end_time - start_time
+
+            logger.info(
+                f'File write operation failed (decode error): {filepath}, execution_time={execution_time:.3f}s'
+            )
             return ErrorObservation(f'File could not be decoded as utf-8: {filepath}')
 
         # Attempt to handle file permissions
@@ -682,53 +857,273 @@ class ActionExecutor:
                 # set the new file permissions if the file is new
                 os.chmod(filepath, 0o664)
                 os.chown(filepath, self.user_id, self.user_id)
+
+            # Stop resource sampler and get statistics
+            end_time = time.time()
+            resource_stats = sampler.stop()
+
+            # Calculate execution time
+            execution_time = end_time - start_time
+
+            # Get statistics
+            cpu_avg = resource_stats['cpu_percent']['avg']
+            cpu_max = resource_stats['cpu_percent']['max']
+            memory_avg_mb = resource_stats['memory_mb']['avg']
+            memory_max_mb = resource_stats['memory_mb']['max']
+            memory_avg_percent = resource_stats['memory_percent']['avg']
+            memory_max_percent = resource_stats['memory_percent']['max']
+            io_read_avg_kbps = resource_stats['io_read_kbps']['avg']
+            io_read_max_kbps = resource_stats['io_read_kbps']['max']
+            io_write_avg_kbps = resource_stats['io_write_kbps']['avg']
+            io_write_max_kbps = resource_stats['io_write_kbps']['max']
+            sample_count = resource_stats['sample_count']
+
+            # Log performance metrics
+            logger.info(
+                f'File write operation completed: {filepath}, '
+                f'execution_time={execution_time:.3f}s, '
+                f'samples={sample_count}, '
+                f'cpu_avg={cpu_avg:.1f}%, cpu_max={cpu_max:.1f}%, '
+                f'memory_avg={memory_avg_mb:.2f}MB ({memory_avg_percent:.1f}%), '
+                f'memory_max={memory_max_mb:.2f}MB ({memory_max_percent:.1f}%), '
+                f'io_read_avg={io_read_avg_kbps:.2f}KB/s, io_read_max={io_read_max_kbps:.2f}KB/s, '
+                f'io_write_avg={io_write_avg_kbps:.2f}KB/s, io_write_max={io_write_max_kbps:.2f}KB/s'
+            )
+
+            return FileWriteObservation(content='', path=filepath)
+
         except PermissionError as e:
+            # Stop resource sampler and get statistics
+            end_time = time.time()
+            resource_stats = sampler.stop()
+            execution_time = end_time - start_time
+
+            logger.info(
+                f'File write operation partially failed (permission error): {filepath}, execution_time={execution_time:.3f}s'
+            )
             return ErrorObservation(
                 f'File {filepath} written, but failed to change ownership and permissions: {e}'
             )
-        return FileWriteObservation(content='', path=filepath)
 
+    @PerformanceMonitor.monitor_execution
     async def edit(self, action: FileEditAction) -> Observation:
         assert action.impl_source == FileEditSource.OH_ACI
-        result_str, (old_content, new_content) = _execute_file_editor(
-            self.file_editor,
-            command=action.command,
-            path=action.path,
-            file_text=action.file_text,
-            old_str=action.old_str,
-            new_str=action.new_str,
-            insert_line=action.insert_line,
-            enable_linting=False,
-        )
 
-        return FileEditObservation(
-            content=result_str,
-            path=action.path,
-            old_content=action.old_str,
-            new_content=action.new_str,
-            impl_source=FileEditSource.OH_ACI,
-            diff=get_diff(
-                old_contents=old_content or '',
-                new_contents=new_content or '',
-                filepath=action.path,
-            ),
-        )
+        # Record start time and create resource sampler
+        start_time = time.time()
+        sampler = ResourceSampler(sample_interval=0.5)  # Sample every 0.5 seconds
+        sampler.start()
 
+        logger.info(f'File edit operation started: {action.path}')
+
+        try:
+            result_str, (old_content, new_content) = _execute_file_editor(
+                self.file_editor,
+                command=action.command,
+                path=action.path,
+                file_text=action.file_text,
+                old_str=action.old_str,
+                new_str=action.new_str,
+                insert_line=action.insert_line,
+                enable_linting=False,
+            )
+
+            # Stop resource sampler and get statistics
+            end_time = time.time()
+            resource_stats = sampler.stop()
+
+            # Calculate execution time
+            execution_time = end_time - start_time
+
+            # Get statistics
+            cpu_avg = resource_stats['cpu_percent']['avg']
+            cpu_max = resource_stats['cpu_percent']['max']
+            memory_avg_mb = resource_stats['memory_mb']['avg']
+            memory_max_mb = resource_stats['memory_mb']['max']
+            memory_avg_percent = resource_stats['memory_percent']['avg']
+            memory_max_percent = resource_stats['memory_percent']['max']
+            io_read_avg_kbps = resource_stats['io_read_kbps']['avg']
+            io_read_max_kbps = resource_stats['io_read_kbps']['max']
+            io_write_avg_kbps = resource_stats['io_write_kbps']['avg']
+            io_write_max_kbps = resource_stats['io_write_kbps']['max']
+            sample_count = resource_stats['sample_count']
+
+            # Log performance metrics
+            logger.info(
+                f'File edit operation completed: {action.path}, '
+                f'execution_time={execution_time:.3f}s, '
+                f'samples={sample_count}, '
+                f'cpu_avg={cpu_avg:.1f}%, cpu_max={cpu_max:.1f}%, '
+                f'memory_avg={memory_avg_mb:.2f}MB ({memory_avg_percent:.1f}%), '
+                f'memory_max={memory_max_mb:.2f}MB ({memory_max_percent:.1f}%), '
+                f'io_read_avg={io_read_avg_kbps:.2f}KB/s, io_read_max={io_read_max_kbps:.2f}KB/s, '
+                f'io_write_avg={io_write_avg_kbps:.2f}KB/s, io_write_max={io_write_max_kbps:.2f}KB/s'
+            )
+
+            return FileEditObservation(
+                content=result_str,
+                path=action.path,
+                old_content=action.old_str,
+                new_content=action.new_str,
+                impl_source=FileEditSource.OH_ACI,
+                diff=get_diff(
+                    old_contents=old_content or '',
+                    new_contents=new_content or '',
+                    filepath=action.path,
+                ),
+            )
+        except Exception as e:
+            # Stop resource sampler and get statistics
+            end_time = time.time()
+            resource_stats = sampler.stop()
+            execution_time = end_time - start_time
+
+            logger.error(
+                f'Error editing file: {action.path}, error: {str(e)}, execution_time={execution_time:.3f}s'
+            )
+            return ErrorObservation(str(e))
+
+    @PerformanceMonitor.monitor_execution
     async def browse(self, action: BrowseURLAction) -> Observation:
-        if self.browser is None:
-            return ErrorObservation(
-                'Browser functionality is not supported on Windows.'
-            )
-        await self._ensure_browser_ready()
-        return await browse(action, self.browser, self.initial_cwd)
+        # Record start time and create resource sampler
+        start_time = time.time()
+        sampler = ResourceSampler(sample_interval=0.5)  # Sample every 0.5 seconds
+        sampler.start()
 
-    async def browse_interactive(self, action: BrowseInteractiveAction) -> Observation:
+        logger.info(f'Browser operation started: {action.url}')
+
         if self.browser is None:
+            # Stop resource sampler and get statistics
+            end_time = time.time()
+            resource_stats = sampler.stop()
+            execution_time = end_time - start_time
+
+            logger.info(
+                f'Browser operation failed (not supported): {action.url}, execution_time={execution_time:.3f}s'
+            )
             return ErrorObservation(
                 'Browser functionality is not supported on Windows.'
             )
-        await self._ensure_browser_ready()
-        return await browse(action, self.browser, self.initial_cwd)
+
+        try:
+            await self._ensure_browser_ready()
+            result = await browse(action, self.browser, self.initial_cwd)
+
+            # Stop resource sampler and get statistics
+            end_time = time.time()
+            resource_stats = sampler.stop()
+
+            # Calculate execution time
+            execution_time = end_time - start_time
+
+            # Get statistics
+            cpu_avg = resource_stats['cpu_percent']['avg']
+            cpu_max = resource_stats['cpu_percent']['max']
+            memory_avg_mb = resource_stats['memory_mb']['avg']
+            memory_max_mb = resource_stats['memory_mb']['max']
+            memory_avg_percent = resource_stats['memory_percent']['avg']
+            memory_max_percent = resource_stats['memory_percent']['max']
+            io_read_avg_kbps = resource_stats['io_read_kbps']['avg']
+            io_read_max_kbps = resource_stats['io_read_kbps']['max']
+            io_write_avg_kbps = resource_stats['io_write_kbps']['avg']
+            io_write_max_kbps = resource_stats['io_write_kbps']['max']
+            sample_count = resource_stats['sample_count']
+
+            # Log performance metrics
+            logger.info(
+                f'Browser operation completed: {action.url}, '
+                f'execution_time={execution_time:.3f}s, '
+                f'samples={sample_count}, '
+                f'cpu_avg={cpu_avg:.1f}%, cpu_max={cpu_max:.1f}%, '
+                f'memory_avg={memory_avg_mb:.2f}MB ({memory_avg_percent:.1f}%), '
+                f'memory_max={memory_max_mb:.2f}MB ({memory_max_percent:.1f}%), '
+                f'io_read_avg={io_read_avg_kbps:.2f}KB/s, io_read_max={io_read_max_kbps:.2f}KB/s, '
+                f'io_write_avg={io_write_avg_kbps:.2f}KB/s, io_write_max={io_write_max_kbps:.2f}KB/s'
+            )
+
+            return result
+        except Exception as e:
+            # Stop resource sampler and get statistics
+            end_time = time.time()
+            resource_stats = sampler.stop()
+            execution_time = end_time - start_time
+
+            logger.error(
+                f'Error in browser operation: {action.url}, error: {str(e)}, execution_time={execution_time:.3f}s'
+            )
+            return ErrorObservation(str(e))
+
+    @PerformanceMonitor.monitor_execution
+    async def browse_interactive(self, action: BrowseInteractiveAction) -> Observation:
+        # Record start time and create resource sampler
+        start_time = time.time()
+        sampler = ResourceSampler(sample_interval=0.5)  # Sample every 0.5 seconds
+        sampler.start()
+
+        # Log the start of the interactive browser operation
+        logger.info('Interactive browser operation started')
+
+        if self.browser is None:
+            # Stop resource sampler and get statistics
+            end_time = time.time()
+            resource_stats = sampler.stop()
+            execution_time = end_time - start_time
+
+            logger.info(
+                f'Interactive browser operation failed (not supported), execution_time={execution_time:.3f}s'
+            )
+            return ErrorObservation(
+                'Browser functionality is not supported on Windows.'
+            )
+
+        try:
+            await self._ensure_browser_ready()
+            # Use the same browse function for interactive actions
+            result = await browse(action, self.browser, self.initial_cwd)
+
+            # Stop resource sampler and get statistics
+            end_time = time.time()
+            resource_stats = sampler.stop()
+
+            # Calculate execution time
+            execution_time = end_time - start_time
+
+            # Get statistics
+            cpu_avg = resource_stats['cpu_percent']['avg']
+            cpu_max = resource_stats['cpu_percent']['max']
+            memory_avg_mb = resource_stats['memory_mb']['avg']
+            memory_max_mb = resource_stats['memory_mb']['max']
+            memory_avg_percent = resource_stats['memory_percent']['avg']
+            memory_max_percent = resource_stats['memory_percent']['max']
+            io_read_avg_kbps = resource_stats['io_read_kbps']['avg']
+            io_read_max_kbps = resource_stats['io_read_kbps']['max']
+            io_write_avg_kbps = resource_stats['io_write_kbps']['avg']
+            io_write_max_kbps = resource_stats['io_write_kbps']['max']
+            sample_count = resource_stats['sample_count']
+
+            # Log performance metrics
+            logger.info(
+                f'Interactive browser operation completed, '
+                f'execution_time={execution_time:.3f}s, '
+                f'samples={sample_count}, '
+                f'cpu_avg={cpu_avg:.1f}%, cpu_max={cpu_max:.1f}%, '
+                f'memory_avg={memory_avg_mb:.2f}MB ({memory_avg_percent:.1f}%), '
+                f'memory_max={memory_max_mb:.2f}MB ({memory_max_percent:.1f}%), '
+                f'io_read_avg={io_read_avg_kbps:.2f}KB/s, io_read_max={io_read_max_kbps:.2f}KB/s, '
+                f'io_write_avg={io_write_avg_kbps:.2f}KB/s, io_write_max={io_write_max_kbps:.2f}KB/s'
+            )
+
+            return result
+        except Exception as e:
+            # Stop resource sampler and get statistics
+            end_time = time.time()
+            resource_stats = sampler.stop()
+            execution_time = end_time - start_time
+
+            logger.error(
+                f'Error in interactive browser operation, error: {str(e)}, execution_time={execution_time:.3f}s'
+            )
+            return ErrorObservation(str(e))
 
     def close(self):
         self.memory_monitor.stop_monitoring()
