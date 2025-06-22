@@ -287,6 +287,8 @@ class LLM(RetryMixin, DebugMixin):
 
             # Record start time for latency measurement
             start_time = time.time()
+            logger.info(f'LLM request started: model={self.config.model}')
+
             # we don't support streaming here, thus we get a ModelResponse
             resp: ModelResponse = self._completion_unwrapped(*args, **kwargs)
 
@@ -294,6 +296,11 @@ class LLM(RetryMixin, DebugMixin):
             latency = time.time() - start_time
             response_id = resp.get('id', 'unknown')
             self.metrics.add_response_latency(latency, response_id)
+
+            # Log detailed timing information
+            logger.info(
+                f'LLM request completed: model={self.config.model}, response_id={response_id}, execution_time={latency:.3f}s'
+            )
 
             non_fncall_response = copy.deepcopy(resp)
 
@@ -576,6 +583,10 @@ class LLM(RetryMixin, DebugMixin):
         if self.metrics.response_latencies:
             latest_latency = self.metrics.response_latencies[-1]
             stats += 'Response Latency: %.3f seconds\n' % latest_latency.latency
+            # Log detailed latency information
+            logger.info(
+                f'LLM response latency: {latest_latency.latency:.3f}s, response_id={latest_latency.response_id}'
+            )
 
         usage: Usage | None = response.get('usage')
         response_id = response.get('id', 'unknown')

@@ -1,11 +1,12 @@
 """Utilities for getting system resource statistics."""
 
 import time
+from typing import Any, Dict
 
 import psutil
 
 
-def get_system_stats() -> dict[str, object]:
+def get_system_stats() -> dict[str, Any]:
     """Get current system resource statistics.
 
     Returns:

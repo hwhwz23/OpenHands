@@ -9,6 +9,8 @@ from typing import Any
 import bashlex
 import libtmux
 
+from openhands.runtime.utils.system_stats import get_system_stats
+
 from openhands.core.logger import openhands_logger as logger
 from openhands.events.action import CmdRunAction
 from openhands.events.observation import ErrorObservation
@@ -356,6 +358,24 @@ class BashSession:
         self.prev_status = BashCommandStatus.COMPLETED
         self.prev_output = ''  # Reset previous command output
         self._ready_for_next_command()
+
+        # Get final system stats and calculate execution time
+        time.time()
+        end_stats = get_system_stats()
+
+        # Calculate resource usage
+        cpu_percent = end_stats['cpu_percent']
+        memory_usage_mb = end_stats['memory']['rss'] / (1024 * 1024)  # Convert to MB
+        memory_percent = end_stats['memory']['percent']
+
+        # Log performance metrics
+        logger.info(
+            f'Bash command execution completed: {command[:50]}{"..." if len(command) > 50 else ""}, '
+            f'exit_code={metadata.exit_code}, '
+            f'cpu_percent={cpu_percent:.1f}%, '
+            f'memory_usage={memory_usage_mb:.2f}MB ({memory_percent:.1f}%)'
+        )
+
         return CmdOutputObservation(
             content=command_output,
             command=command,
@@ -475,10 +495,21 @@ class BashSession:
         if not self._initialized:
             raise RuntimeError('Bash session is not initialized')
 
+        # Record start time and system stats
+        start_time = time.time()
+        from openhands.runtime.utils.system_stats import get_system_stats
+
+        get_system_stats()
+
         # Strip the command of any leading/trailing whitespace
         logger.debug(f'RECEIVED ACTION: {action}')
         command = action.command.strip()
         is_input: bool = action.is_input
+
+        # Log the start of command execution
+        logger.info(
+            f'Bash command execution started: {command[:50]}{"..." if len(command) > 50 else ""}'
+        )
 
         # If the previous command is not completed, we need to check if the command is empty
         if self.prev_status not in {
@@ -653,4 +684,23 @@ class BashSession:
 
             logger.debug(f'SLEEPING for {self.POLL_INTERVAL} seconds for next poll')
             time.sleep(self.POLL_INTERVAL)
+
+        # If we get here, something went wrong
+        end_time = time.time()
+        end_stats = get_system_stats()
+        execution_time = end_time - start_time
+
+        # Calculate resource usage
+        cpu_percent = end_stats['cpu_percent']
+        memory_usage_mb = end_stats['memory']['rss'] / (1024 * 1024)  # Convert to MB
+        memory_percent = end_stats['memory']['percent']
+
+        # Log performance metrics for the failed command
+        logger.info(
+            f'Bash command execution failed: {command[:50]}{"..." if len(command) > 50 else ""}, '
+            f'execution_time={execution_time:.3f}s, '
+            f'cpu_percent={cpu_percent:.1f}%, '
+            f'memory_usage={memory_usage_mb:.2f}MB ({memory_percent:.1f}%)'
+        )
+
         raise RuntimeError('Bash session was likely interrupted...')
