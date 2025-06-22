@@ -69,7 +69,10 @@ from openhands.runtime.utils import find_available_tcp_port
 from openhands.runtime.utils.bash import BashSession
 from openhands.runtime.utils.files import insert_lines, read_lines
 from openhands.runtime.utils.memory_monitor import MemoryMonitor
-from openhands.runtime.utils.performance_monitor import ResourceSampler
+from openhands.runtime.utils.performance_monitor import (
+    PerformanceMonitor,
+    ResourceSampler,
+)
 from openhands.runtime.utils.runtime_init import init_user_and_working_directory
 from openhands.runtime.utils.system_stats import get_system_stats
 from openhands.utils.async_utils import call_sync_from_async, wait_all
@@ -378,6 +381,7 @@ class ActionExecutor:
             assert obs.exit_code == 0
         logger.debug('Bash init commands completed')
 
+    @PerformanceMonitor.monitor_execution
     async def run_action(self, action) -> Observation:
         async with self.lock:
             action_type = action.action
@@ -406,6 +410,10 @@ class ActionExecutor:
             memory_max_mb = resource_stats['memory_mb']['max']
             memory_avg_percent = resource_stats['memory_percent']['avg']
             memory_max_percent = resource_stats['memory_percent']['max']
+            io_read_avg_kbps = resource_stats['io_read_kbps']['avg']
+            io_read_max_kbps = resource_stats['io_read_kbps']['max']
+            io_write_avg_kbps = resource_stats['io_write_kbps']['avg']
+            io_write_max_kbps = resource_stats['io_write_kbps']['max']
             sample_count = resource_stats['sample_count']
 
             # Log performance metrics
@@ -415,7 +423,9 @@ class ActionExecutor:
                 f'samples={sample_count}, '
                 f'cpu_avg={cpu_avg:.1f}%, cpu_max={cpu_max:.1f}%, '
                 f'memory_avg={memory_avg_mb:.2f}MB ({memory_avg_percent:.1f}%), '
-                f'memory_max={memory_max_mb:.2f}MB ({memory_max_percent:.1f}%)'
+                f'memory_max={memory_max_mb:.2f}MB ({memory_max_percent:.1f}%), '
+                f'io_read_avg={io_read_avg_kbps:.2f}KB/s, io_read_max={io_read_max_kbps:.2f}KB/s, '
+                f'io_write_avg={io_write_avg_kbps:.2f}KB/s, io_write_max={io_write_max_kbps:.2f}KB/s'
             )
 
             return observation
@@ -434,6 +444,7 @@ class ActionExecutor:
             logger.error(f'Error running command: {e}')
             return ErrorObservation(str(e))
 
+    @PerformanceMonitor.monitor_execution
     async def run_ipython(self, action: IPythonRunCellAction) -> Observation:
         assert self.bash_session is not None
 
@@ -492,6 +503,10 @@ class ActionExecutor:
             memory_max_mb = resource_stats['memory_mb']['max']
             memory_avg_percent = resource_stats['memory_percent']['avg']
             memory_max_percent = resource_stats['memory_percent']['max']
+            io_read_avg_kbps = resource_stats['io_read_kbps']['avg']
+            io_read_max_kbps = resource_stats['io_read_kbps']['max']
+            io_write_avg_kbps = resource_stats['io_write_kbps']['avg']
+            io_write_max_kbps = resource_stats['io_write_kbps']['max']
             sample_count = resource_stats['sample_count']
 
             # Log performance metrics
@@ -501,7 +516,9 @@ class ActionExecutor:
                 f'samples={sample_count}, '
                 f'cpu_avg={cpu_avg:.1f}%, cpu_max={cpu_max:.1f}%, '
                 f'memory_avg={memory_avg_mb:.2f}MB ({memory_avg_percent:.1f}%), '
-                f'memory_max={memory_max_mb:.2f}MB ({memory_max_percent:.1f}%)'
+                f'memory_max={memory_max_mb:.2f}MB ({memory_max_percent:.1f}%), '
+                f'io_read_avg={io_read_avg_kbps:.2f}KB/s, io_read_max={io_read_max_kbps:.2f}KB/s, '
+                f'io_write_avg={io_write_avg_kbps:.2f}KB/s, io_write_max={io_write_max_kbps:.2f}KB/s'
             )
 
             return obs
@@ -520,6 +537,10 @@ class ActionExecutor:
             memory_max_mb = resource_stats['memory_mb']['max']
             memory_avg_percent = resource_stats['memory_percent']['avg']
             memory_max_percent = resource_stats['memory_percent']['max']
+            io_read_avg_kbps = resource_stats['io_read_kbps']['avg']
+            io_read_max_kbps = resource_stats['io_read_kbps']['max']
+            io_write_avg_kbps = resource_stats['io_write_kbps']['avg']
+            io_write_max_kbps = resource_stats['io_write_kbps']['max']
             sample_count = resource_stats['sample_count']
 
             # Log performance metrics for the failed execution
@@ -529,7 +550,9 @@ class ActionExecutor:
                 f'samples={sample_count}, '
                 f'cpu_avg={cpu_avg:.1f}%, cpu_max={cpu_max:.1f}%, '
                 f'memory_avg={memory_avg_mb:.2f}MB ({memory_avg_percent:.1f}%), '
-                f'memory_max={memory_max_mb:.2f}MB ({memory_max_percent:.1f}%)'
+                f'memory_max={memory_max_mb:.2f}MB ({memory_max_percent:.1f}%), '
+                f'io_read_avg={io_read_avg_kbps:.2f}KB/s, io_read_max={io_read_max_kbps:.2f}KB/s, '
+                f'io_write_avg={io_write_avg_kbps:.2f}KB/s, io_write_max={io_write_max_kbps:.2f}KB/s'
             )
 
             raise RuntimeError(

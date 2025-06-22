@@ -18,7 +18,10 @@ from openhands.events.observation.commands import (
     CmdOutputObservation,
 )
 from openhands.runtime.utils.bash_constants import TIMEOUT_MESSAGE_TEMPLATE
-from openhands.runtime.utils.performance_monitor import ResourceSampler
+from openhands.runtime.utils.performance_monitor import (
+    PerformanceMonitor,
+    ResourceSampler,
+)
 from openhands.utils.shutdown_listener import should_continue
 
 
@@ -382,6 +385,10 @@ class BashSession:
             memory_max_mb = resource_stats['memory_mb']['max']
             memory_avg_percent = resource_stats['memory_percent']['avg']
             memory_max_percent = resource_stats['memory_percent']['max']
+            io_read_avg_kbps = resource_stats['io_read_kbps']['avg']
+            io_read_max_kbps = resource_stats['io_read_kbps']['max']
+            io_write_avg_kbps = resource_stats['io_write_kbps']['avg']
+            io_write_max_kbps = resource_stats['io_write_kbps']['max']
             sample_count = resource_stats['sample_count']
 
             logger.info(
@@ -391,7 +398,9 @@ class BashSession:
                 f'samples={sample_count}, '
                 f'cpu_avg={cpu_avg:.1f}%, cpu_max={cpu_max:.1f}%, '
                 f'memory_avg={memory_avg_mb:.2f}MB ({memory_avg_percent:.1f}%), '
-                f'memory_max={memory_max_mb:.2f}MB ({memory_max_percent:.1f}%)'
+                f'memory_max={memory_max_mb:.2f}MB ({memory_max_percent:.1f}%), '
+                f'io_read_avg={io_read_avg_kbps:.2f}KB/s, io_read_max={io_read_max_kbps:.2f}KB/s, '
+                f'io_write_avg={io_write_avg_kbps:.2f}KB/s, io_write_max={io_write_max_kbps:.2f}KB/s'
             )
         else:
             # Simple log without performance metrics
@@ -514,6 +523,7 @@ class BashSession:
         logger.debug(f'COMBINED OUTPUT: {combined_output}')
         return combined_output
 
+    @PerformanceMonitor.monitor_execution
     def execute(self, action: CmdRunAction) -> CmdOutputObservation | ErrorObservation:
         """Execute a command in the bash session."""
         if not self._initialized:
@@ -725,6 +735,10 @@ class BashSession:
             memory_max_mb = resource_stats['memory_mb']['max']
             memory_avg_percent = resource_stats['memory_percent']['avg']
             memory_max_percent = resource_stats['memory_percent']['max']
+            io_read_avg_kbps = resource_stats['io_read_kbps']['avg']
+            io_read_max_kbps = resource_stats['io_read_kbps']['max']
+            io_write_avg_kbps = resource_stats['io_write_kbps']['avg']
+            io_write_max_kbps = resource_stats['io_write_kbps']['max']
             sample_count = resource_stats['sample_count']
 
             # Log performance metrics for the failed command
@@ -734,7 +748,9 @@ class BashSession:
                 f'samples={sample_count}, '
                 f'cpu_avg={cpu_avg:.1f}%, cpu_max={cpu_max:.1f}%, '
                 f'memory_avg={memory_avg_mb:.2f}MB ({memory_avg_percent:.1f}%), '
-                f'memory_max={memory_max_mb:.2f}MB ({memory_max_percent:.1f}%)'
+                f'memory_max={memory_max_mb:.2f}MB ({memory_max_percent:.1f}%), '
+                f'io_read_avg={io_read_avg_kbps:.2f}KB/s, io_read_max={io_read_max_kbps:.2f}KB/s, '
+                f'io_write_avg={io_write_avg_kbps:.2f}KB/s, io_write_max={io_write_max_kbps:.2f}KB/s'
             )
         else:
             # Simple log without performance metrics
