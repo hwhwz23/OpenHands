@@ -221,6 +221,12 @@ def get_config(
     )
 
     sandbox_config = get_default_sandbox_config_for_eval()
+    
+    sandbox_config.docker_runtime_kwargs = {
+        'mem_limit': '16g',
+        'cpuset_cpus': '0',
+    }
+    
     sandbox_config.base_container_image = base_container_image
     sandbox_config.enable_auto_lint = True
     sandbox_config.use_host_network = False

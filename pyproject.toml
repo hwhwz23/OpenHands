@@ -101,6 +101,8 @@ runloop-api-client = { version = "0.50.0", optional = true }
 daytona = { version = "0.24.2", optional = true }
 httpx-aiohttp = "^0.1.8"
 e2b-code-interpreter = { version = "^2.0.0", optional = true }
+datasets = "^4.1.0"
+swebench = {git = "https://github.com/ryanhoangt/SWE-bench.git", rev = "fix-modal-patch-eval"}
 
 [tool.poetry.extras]
 third_party_runtimes = [ "e2b-code-interpreter", "modal", "runloop-api-client", "daytona" ]
@@ -149,7 +151,6 @@ retry = "*"
 evaluate = "*"
 visualswebench = { git = "https://github.com/luolin101/Visual-SWE-bench.git" }
 swegym = { git = "https://github.com/SWE-Gym/SWE-Bench-Package.git" }
-commit0 = "*"
 func_timeout = "*"
 sympy = "*"
 gdown = "*"
@@ -165,7 +166,6 @@ boto3-stubs = { extras = [ "s3" ], version = "^1.37.19" }
 pyarrow = "21.0.0"
 datasets = "*"
 joblib = "*"
-swebench = { git = "https://github.com/ryanhoangt/SWE-bench.git", rev = "fix-modal-patch-eval" }
 
 [tool.poetry.scripts]
 openhands = "openhands.cli.entry:main"
