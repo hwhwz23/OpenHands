@@ -139,6 +139,9 @@ for i in $(seq 1 $N_RUNS); do
     continue
   fi
   current_eval_note="$EVAL_NOTE-run_$i"
+  if [ "$ITERATIVE_EVAL_MODE" = true ]; then
+    current_eval_note="$current_eval_note-iter"
+  fi
   echo "EVAL_NOTE: $current_eval_note"
   run_eval $current_eval_note
 done
